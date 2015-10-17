@@ -33,6 +33,7 @@ debug = flip trace
 
 data RoomStatus
   = FreeUntil TimeOfDay
+  | Free
   | Busy
   deriving (Show)
 
@@ -41,13 +42,13 @@ data Room
   deriving (Show)
 
 roomStatus :: TimeOfDay -> SearchResults -> [Room]
-roomStatus now = map toRoom
+roomStatus time = map toRoom
   where
     toRoom (name, lessons) = Room name status
       where
         status
-          | any (isDuring now) lessons = Busy
-          | otherwise = FreeUntil . fromMaybe midnight . find (> now)
+          | any (isDuring time) lessons = Busy
+          | otherwise = maybe Free FreeUntil . find (> time)
                       . map startTime . sortOn startTime $ lessons
 
 isDuring :: TimeOfDay -> Lesson -> Bool
@@ -55,8 +56,8 @@ isDuring time lesson = startTime lesson <= time && time <= endTime lesson
 
 roomStatusSearch :: Text -> IO (Either Text [Room])
 roomStatusSearch query = do
-  now <- (timeToTimeOfDay . utctDayTime) <$> getCurrentTime
-  search (roomStatus now) RoomQuery query
+  currentTime <- localTimeOfDay <$> now
+  search (roomStatus currentTime) RoomQuery query
 
 
 scheduleToday :: Text -> IO ()
@@ -93,16 +94,16 @@ textFromSearch = T.unlines . map (uncurry prettySchedule)
 
 downloadTodaysSchedule :: Manager -> TimeEditId -> IO [Lesson]
 downloadTodaysSchedule manager id = do
-  t <- today
-  csv <- httpGet manager $ scheduleUrl t t [id]
+  today <- addDays (-3) . localDay <$> now
+  csv <- httpGet manager $ scheduleUrl today today [id]
   return $ parseCsv $ replace ", " ("," :: BS.ByteString) csv
 
 -- TODO: prettySchedule for different search types
 
-today :: IO Day
-today = do
-  t <- utctDay <$> getCurrentTime
-  return $ addDays (-3) t
+now :: IO LocalTime
+now = do
+  timeZone <- getCurrentTimeZone
+  utcToLocalTime timeZone <$> getCurrentTime
 
 prettySchedule :: TimeEditName -> [Lesson] -> Text
 prettySchedule name lessons
