@@ -83,18 +83,18 @@ search
 search f searchType query = do
   manager <- newManager tlsManagerSettings
   html <- httpGet manager $ searchUrl searchType query
-  let nameids = parseTimeEditSearchResults $ textFromLazyBS html
-  case nameids of
+  case parseTimeEditSearchResults $ textFromLazyBS html of
     [] -> return . Left $ T.concat
         ["No ", T.toLower (tshow searchType), " found for \"", query, "\""]
-    xs -> Right . f <$> (mapM.mapM) (downloadTodaysSchedule manager) xs
+    nameids -> Right . f
+      <$> (mapM.mapM) (downloadTodaysSchedule manager) nameids
 
 textFromSearch :: SearchResults -> Text
 textFromSearch = T.unlines . map (uncurry prettySchedule)
 
 downloadTodaysSchedule :: Manager -> TimeEditId -> IO [Lesson]
 downloadTodaysSchedule manager id = do
-  today <- addDays (-3) . localDay <$> now
+  today <- localDay <$> now
   csv <- httpGet manager $ scheduleUrl today today [id]
   return $ parseCsv $ replace ", " ("," :: BS.ByteString) csv
 
@@ -104,6 +104,7 @@ now :: IO LocalTime
 now = do
   timeZone <- getCurrentTimeZone
   utcToLocalTime timeZone <$> getCurrentTime
+  parseTimeM True defaultTimeLocale "%y%m%d %H:%M" "151014 10:30"
 
 prettySchedule :: TimeEditName -> [Lesson] -> Text
 prettySchedule name lessons
