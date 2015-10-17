@@ -8,59 +8,106 @@ import           Data.Time
 import           Data.Time.Format
 import           Data.Time.Clock
 
-import           Data.Text (Text)
-import qualified Data.Text as T
-import qualified Data.Text.IO as T
-import qualified Data.Text.Encoding as E
+import           Data.Text.Lazy (Text)
+import qualified Data.Text.Lazy as T
+import qualified Data.Text.Lazy.IO as T
+import qualified Data.Text.Lazy.Encoding as E
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Lazy.Char8 as L
 import qualified Data.ByteString.Char8 as BS
 
 import qualified Data.Vector as V
-import           Network.HTTP.Conduit
 import           Text.HTML.TagSoup
 import           Data.Csv
 
+import           Network.HTTP.Conduit
+
 default (Text)
 
-scheduleToday :: String -> IO ()
+-- TODO: get iCal link for courses
+
+data RoomStatus
+  = FreeUntil TimeOfDay
+  | Busy
+  deriving (Show)
+
+data Room
+  = Room Text RoomStatus
+  deriving (Show)
+
+roomStatus :: TimeOfDay -> SearchResults -> [Room]
+roomStatus now = map toRoom
+  where
+    toRoom (name, lessons) = Room name status
+      where
+        status
+          | any (isDuring now) lessons = Busy
+          | otherwise = FreeUntil . fromMaybe midnight . find (> now)
+                      . map startTime . sortOn startTime $ lessons
+
+isDuring :: TimeOfDay -> Lesson -> Bool
+isDuring time lesson = startTime lesson <= time && time <= endTime lesson
+
+roomStatusSearch :: Text -> IO (Either Text [Room])
+roomStatusSearch query = do
+  now <- (timeToTimeOfDay . utctDayTime) <$> getCurrentTime
+  search (roomStatus now) RoomQuery query
+
+
+scheduleToday :: Text -> IO ()
 scheduleToday query = do
-  roomResult <- search Room query
+  roomResult <- search textFromSearch RoomQuery query
   case roomResult of
     Right result -> T.putStr result
     Left _ -> do
-      courseResult <- search Course query
+      courseResult <- search textFromSearch CourseQuery query
       case courseResult of
         Right result -> T.putStr result
-        Left _ -> T.putStr $ T.concat [
-          "No room or course found for \"", T.pack query, "\""]
+        Left _ -> T.putStrLn $ T.concat [
+          "No room or course found for \"", query, "\""]
 
-search :: SearchType -> String -> IO (Either Text Text)
-search searchType query = do
+-- * Searching timeEdit
+
+type SearchResults = [(TimeEditName, [Lesson])]
+
+search
+  :: (SearchResults -> a)
+  -> QueryType -> Text
+  -> IO (Either Text a)
+search f searchType query = do
   manager <- newManager tlsManagerSettings
-  html <- httpGet manager $ searchUrl searchType textQuery
-  case parseTimeEditResults (textFromLazyBS html) of
-    [] -> return $ Left errorString
-    xs -> (Right . T.unlines) <$> mapM (prettySchedule manager) xs
-  where
-    textQuery = T.pack query
-    errorString = T.concat
-      ["No ", T.toLower (tshow searchType), " found for \"", textQuery, "\""]
+  html <- httpGet manager $ searchUrl searchType query
+  let nameids = parseTimeEditSearchResults $ textFromLazyBS html
+  case nameids of
+    [] -> return . Left $ T.concat
+        ["No ", T.toLower (tshow searchType), " found for \"", query, "\""]
+    xs -> Right . f <$> (mapM.mapM) (downloadTodaysSchedule manager) xs
 
-prettySchedule :: Manager -> (TimeEditId, TimeEditName) -> IO Text
-prettySchedule manager (id, name) = do
-  today <- utctDay <$> getCurrentTime
-  csv <- httpGet manager $ scheduleUrl today today [id]
-  return $ T.unlines (name : schedule (parseCsv csv))
+textFromSearch :: SearchResults -> Text
+textFromSearch = T.unlines . map (uncurry prettySchedule)
+
+downloadTodaysSchedule :: Manager -> TimeEditId -> IO [Lesson]
+downloadTodaysSchedule manager id = do
+  t <- today
+  csv <- httpGet manager $ scheduleUrl t t [id]
+  return $ parseCsv csv
+
+-- TODO: prettySchedule for different search types
+
+today :: IO Day
+today = do
+  t <- utctDay <$> getCurrentTime
+  return $ addDays 0 t
+
+prettySchedule :: TimeEditName -> [Lesson] -> Text
+prettySchedule name lessons
+  = T.unlines (name : schedule lessons)
   where
     schedule []      = ["-"]
     schedule lessons = map prettyTimes lessons
     format = T.pack . formatTime defaultTimeLocale "%H:%M"
     prettyTimes lesson = T.intercalate "–"
       $ map (\f -> format $ f lesson) [startTime, endTime]
-
-
-
 
 -- * Convenience
 
@@ -70,7 +117,7 @@ httpGet manager url = do
   responseBody <$> httpLbs request manager
 
 textFromLazyBS :: L.ByteString -> Text
-textFromLazyBS = E.decodeUtf8 . L.toStrict
+textFromLazyBS = E.decodeUtf8
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
@@ -79,16 +126,16 @@ tshow = T.pack . show
 
 -- * Search types
 
-data SearchType
-  = Room
-  | Course
+data QueryType
+  = RoomQuery
+  | CourseQuery
   deriving (Show)
 
-stringFromSearchType :: SearchType -> Text
+stringFromSearchType :: QueryType -> Text
 stringFromSearchType searchType
   = case searchType of
-    Room -> "186"
-    Course -> "182"
+    RoomQuery -> "186"
+    CourseQuery -> "182"
 
 
 
@@ -97,13 +144,13 @@ stringFromSearchType searchType
 type TimeEditId = Text
 type TimeEditName = Text
 
-parseTimeEditResults :: Text -> [(TimeEditId, TimeEditName)]
-parseTimeEditResults
+parseTimeEditSearchResults :: Text -> [(TimeEditName, TimeEditId)]
+parseTimeEditSearchResults
   = map extract
   . filter (~== TagOpen "div" [(attrId, ""), (attrName, "")])
   . parseTags
   where
-    extract div = (fromAttrib attrId div, fromAttrib attrName div)
+    extract div = (fromAttrib attrName div, fromAttrib attrId div)
     attrId = "data-id"
     attrName = "data-name"
 
@@ -148,7 +195,7 @@ instance FromField TimeOfDay where
 
 instance FromField Rooms where
   parseField
-    = pure . Rooms . map E.decodeUtf8 . BS.words
+    = pure . Rooms . map E.decodeUtf8 . L.words . L.fromStrict
 
 parseCsv :: L.ByteString -> [Lesson]
 parseCsv csv = V.toList vector
@@ -161,10 +208,12 @@ dropLines n = L.unlines . drop n . L.lines
 
 -- * urls
 
+-- TODO remove unnecessary stuff from urls
+
 baseUrl :: Text
 baseUrl = "https://se.timeedit.net/web/chalmers/db1/public/"
 
-searchUrl :: SearchType -> Text -> Text
+searchUrl :: QueryType -> Text -> Text
 searchUrl searchType query = T.concat [
   baseUrl, "objects.html?fr=t&partajax=t&im=f&sid=1004&l=sv",
   "&search_text=", query, "&types=", typeString]

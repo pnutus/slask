@@ -32,6 +32,9 @@ executable timeedit
   ghc-options:         -threaded -rtsopts -with-rtsopts=-N
   build-depends:       base
                      , timeedit
+                     , scotty
+                     , transformers
+                     , blaze-html
   default-language:    Haskell2010
 
 test-suite timeedit-test
