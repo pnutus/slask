@@ -57,8 +57,8 @@ htmlFromRoom (Room name status)
 
 htmlFromRoomStatus :: RoomStatus -> Html
 htmlFromRoomStatus status = case status of
-  Busy -> red "Busy"
-  Free -> green "Free"
+  Occupied -> red "Occupied"
+  Free -> green "Free today"
   (FreeUntil time)
     -> green $ "Free until " ++ format time
   where

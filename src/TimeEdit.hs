@@ -33,8 +33,8 @@ debug = flip trace
 
 data RoomStatus
   = FreeUntil TimeOfDay
+  | Occupied
   | Free
-  | Busy
   deriving (Show)
 
 data Room
@@ -47,7 +47,7 @@ roomStatus time = map toRoom
     toRoom (name, lessons) = Room name status
       where
         status
-          | any (isDuring time) lessons = Busy
+          | any (isDuring time) lessons = Occupied
           | otherwise = maybe Free FreeUntil . find (> time)
                       . map startTime . sortOn startTime $ lessons
 
