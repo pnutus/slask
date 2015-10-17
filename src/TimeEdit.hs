@@ -59,6 +59,9 @@ prettySchedule manager (id, name) = do
     prettyTimes lesson = T.intercalate "–"
       $ map (\f -> format $ f lesson) [startTime, endTime]
 
+
+
+
 -- * Convenience
 
 httpGet :: Manager -> Text -> IO L.ByteString
@@ -71,6 +74,8 @@ textFromLazyBS = E.decodeUtf8 . L.toStrict
 
 tshow :: Show a => a -> Text
 tshow = T.pack . show
+
+
 
 -- * Search types
 
@@ -85,27 +90,27 @@ stringFromSearchType searchType
     Room -> "186"
     Course -> "182"
 
--- * Html Scraping
 
-maybeAttrib tag attr
-  | isTagOpen tag = Just $ fromAttrib attr tag
-  | otherwise     = Nothing
+
+-- * Html Scraping
 
 type TimeEditId = Text
 type TimeEditName = Text
 
 parseTimeEditResults :: Text -> [(TimeEditId, TimeEditName)]
 parseTimeEditResults
-  = mapMaybe processResult
-  . filter (~== TagOpen "div" [("data-id", ""), ("data-name", "")])
+  = map extract
+  . filter (~== TagOpen "div" [(attrId, ""), (attrName, "")])
   . parseTags
   where
-    processResult div
-      = (,) <$> maybeAttrib div "data-id"
-            <*> maybeAttrib div "data-name"
+    extract div = (fromAttrib attrId div, fromAttrib attrName div)
+    attrId = "data-id"
+    attrName = "data-name"
+
+
+
 
 -- * CSV scraping
-
 
 data Lesson
   = Lesson
