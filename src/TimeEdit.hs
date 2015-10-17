@@ -15,14 +15,19 @@ import qualified Data.Text.Lazy.Encoding as E
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Lazy.Char8 as L
 import qualified Data.ByteString.Char8 as BS
+import           Data.ByteString.Lazy.Search (replace)
 
 import qualified Data.Vector as V
 import           Text.HTML.TagSoup
 import           Data.Csv
 
+import           Debug.Trace (trace)
 import           Network.HTTP.Conduit
 
 default (Text)
+
+
+debug = flip trace
 
 -- TODO: get iCal link for courses
 
@@ -90,14 +95,14 @@ downloadTodaysSchedule :: Manager -> TimeEditId -> IO [Lesson]
 downloadTodaysSchedule manager id = do
   t <- today
   csv <- httpGet manager $ scheduleUrl t t [id]
-  return $ parseCsv csv
+  return $ parseCsv $ replace ", " ("," :: BS.ByteString) csv
 
 -- TODO: prettySchedule for different search types
 
 today :: IO Day
 today = do
   t <- utctDay <$> getCurrentTime
-  return $ addDays 0 t
+  return $ addDays (-3) t
 
 prettySchedule :: TimeEditName -> [Lesson] -> Text
 prettySchedule name lessons
@@ -222,7 +227,7 @@ searchUrl searchType query = T.concat [
 
 scheduleUrl :: Day -> Day -> [TimeEditId] -> Text
 scheduleUrl startTime endTime ids = T.concat [
-  baseUrl, "ri.csv?sid=3",
+  baseUrl, "ri.csv?sid=3&l=en_US",
   "&p=", format startTime, "-", format endTime,
   "&objects=", T.intercalate "," ids]
   where

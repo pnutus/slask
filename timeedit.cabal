@@ -23,7 +23,8 @@ library
                        time,
                        cassava,
                        tagsoup,
-                       vector
+                       vector,
+                       stringsearch
   default-language:    Haskell2010
 
 executable timeedit

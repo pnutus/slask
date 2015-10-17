@@ -20,10 +20,10 @@ htmlPage :: [Room] -> Html
 htmlPage rooms
   = docTypeHtml $ do
     H.body $ do
-      mapM_ htmlFromRoom rooms
+      table $ mapM_ htmlFromRoom rooms
 
 htmlFromRoom :: Room -> Html
 htmlFromRoom (Room name status)
-  = do
-    p $ b $ toHtml name
-    p $ toHtml $ show status
+  = tr $ do
+    td $ b $ toHtml name
+    td $ toHtml $ show status
