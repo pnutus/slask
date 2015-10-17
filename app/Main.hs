@@ -4,6 +4,6 @@ import TimeEdit
 
 main :: IO ()
 main = do
-  putStrLn "Enter room name"
+  putStrLn "Enter room name or course code"
   query <- getLine
-  search Course query
+  scheduleToday query
