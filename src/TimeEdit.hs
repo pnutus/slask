@@ -139,7 +139,10 @@ tshow = T.pack . show
 data QueryType
   = RoomQuery
   | CourseQuery
-  deriving (Show)
+
+instance Show QueryType where
+  show RoomQuery = "Room"
+  show CourseQuery = "Course"
 
 stringFromSearchType :: QueryType -> Text
 stringFromSearchType searchType
