@@ -3,6 +3,7 @@ module Main where
 
 import Web.Scotty as S
 import Control.Monad.IO.Class
+import Control.Monad.Reader
 import TimeEdit
 import Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as T
@@ -10,29 +11,33 @@ import Text.Blaze.Html5 as H hiding (main)
 import Text.Blaze.Html5.Attributes as A hiding (id)
 import Text.Blaze.Html.Renderer.Text (renderHtml)
 import Data.Time.Format
+import Network.HTTP.Client.Conduit
 
 default (T.Text)
 
 main :: IO ()
-main = scotty 8080 $ do
-  get "/" frontPage
-  get "/:room" $ do
-    roomQuery <- S.param "room"
-    table <- queryTable roomQuery
-    blaze . htmlPage $ table
+main = do
+  manager <- newManager
+  scotty 8080 $ do
+    get "/" $ do
+      frontPage manager
+    get "/:room" $ do
+      roomQuery <- S.param "room"
+      table <- queryTable manager roomQuery
+      blaze . htmlPage $ table
 
 frontPageQueries :: [Text]
 frontPageQueries = ["mvf", "mvl", "fl", "ha", "hb", "hc"]
 
-frontPage :: ActionM ()
-frontPage = do
-  tables <- mapM queryTable frontPageQueries
+frontPage :: Manager -> ActionM ()
+frontPage manager = do
+  tables <- mapM (queryTable manager) frontPageQueries
   blaze . htmlPage . mconcat $ tables
 
 
-queryTable :: Text -> ActionM Html
-queryTable query = do
-  resultEither <- liftIO $ roomStatusSearch query
+queryTable :: Manager -> Text -> ActionM Html
+queryTable manager query = do
+  resultEither <- liftIO $ runReaderT (roomStatusSearch query) manager
   return . toHtml . htmlResults $ resultEither
 
 htmlResults :: Either Text [Room] -> Html
@@ -46,7 +51,7 @@ htmlPage pageBody
 
 roomStatusTable :: [Room] -> Html
 roomStatusTable
-  = (table ! A.style "display: inline-block; vertical-align: top; margin-right: 1em;")
+  = (table ! A.style "display: inline-block; vertical-align: top; margin: 0.5em;")
   . mapM_ htmlFromRoom
 
 htmlFromRoom :: Room -> Html

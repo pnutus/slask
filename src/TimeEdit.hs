@@ -7,6 +7,7 @@ import           Data.Maybe
 import           Data.Time
 import           Data.Time.Format
 import           Data.Time.Clock
+import           Control.Monad.Reader
 
 import           Data.Text.Lazy (Text)
 import qualified Data.Text.Lazy as T
@@ -22,7 +23,7 @@ import           Text.HTML.TagSoup
 import           Data.Csv
 
 import           Debug.Trace (trace)
-import           Network.HTTP.Conduit
+import           Network.HTTP.Client.Conduit
 
 default (Text)
 
@@ -54,22 +55,22 @@ roomStatus time = map toRoom
 isDuring :: TimeOfDay -> Lesson -> Bool
 isDuring time lesson = startTime lesson <= time && time <= endTime lesson
 
-roomStatusSearch :: Text -> IO (Either Text [Room])
+roomStatusSearch :: Text -> ReaderT Manager IO (Either Text [Room])
 roomStatusSearch query = do
-  currentTime <- localTimeOfDay <$> now
+  currentTime <- liftIO $ localTimeOfDay <$> now
   search (roomStatus currentTime) RoomQuery query
 
 
-scheduleToday :: Text -> IO ()
+scheduleToday :: Text -> ReaderT Manager IO ()
 scheduleToday query = do
   roomResult <- search textFromSearch RoomQuery query
   case roomResult of
-    Right result -> T.putStr result
+    Right result -> liftIO $ T.putStr result
     Left _ -> do
       courseResult <- search textFromSearch CourseQuery query
       case courseResult of
-        Right result -> T.putStr result
-        Left _ -> T.putStrLn $ T.concat [
+        Right result -> liftIO $ T.putStr result
+        Left _ -> liftIO $ T.putStrLn $ T.concat [
           "No room or course found for \"", query, "\""]
 
 -- * Searching timeEdit
@@ -79,23 +80,25 @@ type SearchResults = [(TimeEditName, [Lesson])]
 search
   :: (SearchResults -> a)
   -> QueryType -> Text
-  -> IO (Either Text a)
+  -> ReaderT Manager IO (Either Text a)
 search f searchType query = do
-  manager <- newManager tlsManagerSettings
-  html <- httpGet manager $ searchUrl searchType query
+  manager <- newManager
+  html <- httpGet $ searchUrl searchType query
   case parseTimeEditSearchResults $ textFromLazyBS html of
     [] -> return . Left $ T.concat
         ["No ", T.toLower (tshow searchType), " found for \"", query, "\""]
     nameids -> Right . f
-      <$> (mapM.mapM) (downloadTodaysSchedule manager) nameids
+      <$> (mapM.mapM) downloadTodaysSchedule nameids
 
 textFromSearch :: SearchResults -> Text
 textFromSearch = T.unlines . map (uncurry prettySchedule)
 
-downloadTodaysSchedule :: Manager -> TimeEditId -> IO [Lesson]
-downloadTodaysSchedule manager id = do
-  today <- localDay <$> now
-  csv <- httpGet manager $ scheduleUrl today today [id]
+downloadTodaysSchedule
+  :: TimeEditId
+  -> ReaderT Manager IO [Lesson]
+downloadTodaysSchedule id = do
+  today <- liftIO $ localDay <$> now
+  csv <- httpGet $ scheduleUrl today today [id]
   return $ parseCsv $ replace ", " ("," :: BS.ByteString) csv
 
 -- TODO: prettySchedule for different search types
@@ -118,10 +121,10 @@ prettySchedule name lessons
 
 -- * Convenience
 
-httpGet :: Manager -> Text -> IO L.ByteString
-httpGet manager url = do
+httpGet :: Text -> ReaderT Manager IO L.ByteString
+httpGet url = do
   request <- parseUrl $ T.unpack url
-  responseBody <$> httpLbs request manager
+  responseBody <$> httpLbs request
 
 textFromLazyBS :: L.ByteString -> Text
 textFromLazyBS = E.decodeUtf8

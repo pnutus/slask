@@ -24,7 +24,8 @@ library
                        cassava,
                        tagsoup,
                        vector,
-                       stringsearch
+                       stringsearch,
+                       monads-tf
   default-language:    Haskell2010
 
 executable timeedit
@@ -36,6 +37,9 @@ executable timeedit
                      , scotty
                      , transformers
                      , blaze-html
+                     , text
+                     , time
+                     , http-conduit
   default-language:    Haskell2010
 
 test-suite timeedit-test
